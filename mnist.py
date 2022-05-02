@@ -53,7 +53,7 @@ def train(epoch, model, perm=torch.arange(0, 784).long(), scramble: bool = False
             data = data.view(-1, 784)[:, perm].view(-1, 1, 28, 28)
         optimizer.zero_grad()
         output = model(data)
-        loss = fun.cross_entropy(output, target)
+        loss = fun.nll_loss(output, target)                     # cross_entropy loss is used without log(Softmax(x))
         loss.backward()
         optimizer.step()
         if batch_idx % 100 == 0:
@@ -70,7 +70,7 @@ def test(model, perm=torch.arange(0, 784).long(), scramble: bool = False):
         if scramble:    # permute pixels
             data = data.view(-1, 784)[:, perm].view(-1, 1, 28, 28)
         output = model(data)
-        test_loss += fun.cross_entropy(output, target, reduction='sum').item()      # sum up batch loss
+        test_loss += fun.nll_loss(output, target, reduction='sum').item()      # sum up batch loss
         pred = output.data.max(1, keepdim=True)[1]                  # get the index of the max log-probability
         correct += pred.eq(target.data.view_as(pred)).cpu().sum().item()
     test_loss /= len(test_loader.dataset)
@@ -102,7 +102,7 @@ def show_some_predictions(test_data, perm=torch.arange(0, 784).long(), scramble:
     if scramble:
         image_batch_scramble = image_batch.view(-1, 784)[:, perm].view(-1, 1, 28, 28)
         with torch.no_grad():                                       # Turn off gradients to speed up this part
-            log_pred_prob_batch = dnn(image_batch_scramble)
+            log_pred_prob_batch = model(image_batch_scramble)
         for i in range(10):
             img_perm, real_label = image_batch_scramble[i], label_batch[i].item()
             # Output of the network are log-probabilities, need to take exponential for probabilities
@@ -110,7 +110,7 @@ def show_some_predictions(test_data, perm=torch.arange(0, 784).long(), scramble:
             visualize_pred(img_perm, pred_prob, real_label)
     else:
         with torch.no_grad():                                       # Turn off gradients to speed up this part
-            log_pred_prob_batch = dnn(image_batch)
+            log_pred_prob_batch = model(image_batch)
         for i in range(10):
             img, real_label = image_batch[i], label_batch[i].item()
             # Output of the network are log-probabilities, need to take exponential for probabilities
@@ -140,10 +140,10 @@ class DNN(nn.Module):
                 nn.Linear(100, 60), nn.ReLU(),                      # second hidden layer, ReLU activation function
                 nn.Linear(60, output_size), nn.LogSoftmax(dim=1))   # output layer, log(Softmax(x)) function
 
-    def forward(self, xyz):
+    def forward(self, x):
         """forward pass"""
-        xyz = xyz.view(-1, self.input_size)
-        return self.network(xyz)
+        x = x.view(-1, self.input_size)
+        return self.network(x)
 
     def get_n_params(self):
         """method to count the number of parameters"""
@@ -153,30 +153,49 @@ class DNN(nn.Module):
         return num_params
 
 
-class CNN(DNN):
-    """The Convolutional Network"""
-    def __init__(self, input_size: int = 784, output_size: int = 10):
+class CNN(nn.Module):
+    """The Convolutional Neural Network"""
+    def __init__(self, input_size: int = 784, output_size: int = 10,    # images are 28x28 pixels; there are 10 classes
+                 drop_out: bool = False, drop_rate: float = 0.8):
+        """CNN with 3 convolutional and 2 linear hidden layers"""
         super().__init__()
-        self.conv1 = nn.Conv2d(1, 12, (3,3))    # (in_channels, out_channels, kernel_size) respectively
-        self.conv2 = nn.Conv2d(12, 24, (6,6))
-        self.conv3 = nn.Conv2d(24, 32, (6,6))
-        self.fc1 = nn.Linear(128, 200)      # 8*4*4=128
+        self.input_size = input_size
+        self.output_size = output_size
+        self.drop_out = drop_out
+        self.drop_rate = drop_rate
+        self.conv1 = nn.Conv2d(1, 12, (3, 3))       # (in_channels, out_channels, kernel_size), respectively
+        self.conv2 = nn.Conv2d(12, 24, (6, 6))      # by default, padding=0
+        self.conv3 = nn.Conv2d(24, 32, (6, 6))
+        self.fc1 = nn.Linear(128, 200)              # 8*4*4=128
+        if drop_out:
+            self.do1 = nn.Dropout(p=drop_rate)
         self.fc2 = nn.Linear(200, 10)
 
-    def forward(self, xyz, verbose=False):
-        xyz = self.conv1(xyz)
-        xyz = fun.relu(xyz)
-        xyz = self.conv2(xyz)
-        xyz = fun.relu(xyz)
-        xyz = fun.max_pool2d(xyz, kernel_size=2)
-        xyz = self.conv3(xyz)
-        xyz = fun.relu(xyz)
+    def forward(self, x):
+        """forward pass"""
+        x = self.conv1(x)
+        x = fun.relu(x)
+        x = self.conv2(x)
+        x = fun.relu(x)
+        x = fun.max_pool2d(x, kernel_size=2)
+        x = self.conv3(x)
+        x = fun.relu(x)
         x = fun.max_pool2d(x, kernel_size=2)
         x = x.view(-1, 128)     # 8*4*4=128
         x = self.fc1(x)
+        if self.drop_out:
+            x = self.do1(x)
         x = fun.relu(x)
         x = self.fc2(x)
         x = fun.log_softmax(x, dim=1)
+        return x
+
+    def get_n_params(self):
+        """method to count the number of parameters"""
+        num_params = 0
+        for param in list(self.parameters()):
+            num_params += param.nelement()
+        return num_params
 
 
 if __name__ == '__main__':
@@ -194,19 +213,19 @@ if __name__ == '__main__':
                                                      transforms.Normalize((0.1307,), (0.3081,))])),
         batch_size=1000, shuffle=True)
 
-    show_some_training_images(train_loader)
+    # show_some_training_images(train_loader)
 
-    fixed_perm = torch.randperm(784)                                # fix a permutation; no need for this
-    visualize_perm(fixed_perm)                                      # no need for this when scramble=False
+    fixed_perm = torch.randperm(784)                    # fix a permutation; no need for this
+    # visualize_perm(fixed_perm)                          # no need for this when scramble=False
 
-    dnn = DNN(drop_out=True)                                        # set drop_out=False to switch the dropout off
-    dnn.to(device)
-    print(f'Number of parameters: {dnn.get_n_params()}')
-    optimizer = optim.SGD(dnn.parameters(), lr=0.01, momentum=0.5)
+    # Train the Network: DNN or CNN
+    model = CNN(drop_out=True)                          # set drop_out=False to switch the dropout off
+    model.to(device)
+    print(f'Number of parameters: {model.get_n_params()}')
+    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.5)
     accuracy_list = []
-    for ep in range(0, 10):                                         # Train the Network for 10 epochs
-        train(ep, dnn, fixed_perm, scramble=True)                   # train(ep, dnn) for no scrambling
-        test(dnn, fixed_perm, scramble=True)                        # test(dnn) for no scrambling
-
-    dnn.to('cpu')
-    show_some_predictions(test_loader, fixed_perm, scramble=True)   # Show some predictions of the test network
+    for ep in range(0, 10):                             # Train the Network for 10 epochs
+        train(ep, model, fixed_perm, scramble=True)     # train(ep, model) for no scrambling, then CNN performs better
+        test(model, fixed_perm, scramble=True)          # test(cnn) for no scrambling
+    model.to('cpu')
+    show_some_predictions(test_loader, fixed_perm, scramble=True)       # Show some predictions of the test network
