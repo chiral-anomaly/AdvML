@@ -175,19 +175,31 @@ class DNN(nn.Module):
 class CNN(nn.Module):
     """The Convolutional Neural Network"""
     def __init__(self, input_size: int = 784, output_size: int = 10,    # images are 28x28 pixels; there are 10 classes
-                 drop_out: bool = False, drop_rate: float = 0.8):
+                 drop_out: bool = False, drop_rate: float = 0.8, dataset_name='MNIST'):
         """CNN with 3 convolutional and 2 linear hidden layers"""
         super().__init__()
         self.input_size = input_size
         self.output_size = output_size
         self.drop_out = drop_out
         self.drop_rate = drop_rate
-        self.conv1 = nn.Conv2d(1, 12, (3, 3))       # (in_channels, out_channels, kernel_size), respectively
+        self.dataset_name = dataset_name
+
+        if self.dataset_name == 'MNIST':            # these are B&W images, so in_channels=1
+            self.conv1 = nn.Conv2d(1, 12, (3, 3))   # (in_channels, out_channels, kernel_size), respectively
+        elif self.dataset_name == 'CIFAR10':        # these are colored images
+            self.conv1 = nn.Conv2d(3, 12, (3, 3))   # so in_channels=3
+
         self.conv2 = nn.Conv2d(12, 24, (6, 6))      # by default, padding=0
         self.conv3 = nn.Conv2d(24, 32, (6, 6))
-        self.fc1 = nn.Linear(128, 200)              # 8*4*4=128
+
+        if self.dataset_name == 'MNIST':
+            self.fc1 = nn.Linear(128, 200)          # 8*4*4=128
+        elif self.dataset_name == 'CIFAR10':
+            self.fc1 = nn.Linear(288, 200)          # 32*3*3=288
+
         if drop_out:
             self.do1 = nn.Dropout(p=drop_rate)
+
         self.fc2 = nn.Linear(200, 10)
 
     def forward(self, x):
@@ -200,7 +212,10 @@ class CNN(nn.Module):
         x = self.conv3(x)
         x = fun.relu(x)
         x = fun.max_pool2d(x, kernel_size=2)
-        x = x.view(-1, 128)     # 8*4*4=128
+        if self.dataset_name == 'MNIST':
+            x = x.view(-1, 128)     # 8*4*4=128
+        elif self.dataset_name == 'CIFAR10':
+            x = x.view(-1, 288)     # 32*3*3=288
         x = self.fc1(x)
         if self.drop_out:
             x = self.do1(x)

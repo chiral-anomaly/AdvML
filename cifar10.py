@@ -104,16 +104,16 @@ if __name__ == '__main__':
     visualize_perm(fixed_perm, train_loader)
 
     # Train the Network: DNN or CNN
-    Model = DNN(input_size=3072)
+    Model = CNN(input_size=3072, dataset_name='CIFAR10')
 
     Model.to(device)
 
     print(f'Number of parameters: {Model.get_num_params()}')
 
     for ep in range(0, 10):
-        train(ep, Model, train_loader, fixed_perm, scramble=True, dataset_name='CIFAR10')
-        test(Model, test_loader, fixed_perm, scramble=True, dataset_name='CIFAR10')
+        train(ep, Model, train_loader, fixed_perm, scramble=False, dataset_name='CIFAR10')
+        test(Model, test_loader, fixed_perm, scramble=False, dataset_name='CIFAR10')
 
     Model.to('cpu')
 
-    show_some_predictions(Model, test_loader, fixed_perm, scramble=True)
+    show_some_predictions(Model, test_loader, fixed_perm, scramble=False)
