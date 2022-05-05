@@ -50,8 +50,6 @@ def visualize_perm(perm, train_data):
 def train(epoch, model, train_data, perm, scramble: bool = False, dataset_name='MNIST'):
     """we pass a model object to this trainer, and it trains this model for one epoch"""
 
-    optimizer = optim.SGD(model.parameters(), lr=0.01, momentum=0.5)
-
     model.train()   # model in training mode. Turns on dropout, batch-norm etc during training
 
     for batch_idx, (data, target) in enumerate(train_data):
